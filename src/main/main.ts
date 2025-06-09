@@ -9,11 +9,17 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from 'path';
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
+import { app, BrowserWindow, shell, ipcMain, Tray, Menu } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
+import { prisma } from './prisma';
+
+const dbPath = path.join(app.getPath('userData'), 'dev.db');
+log.info('dbPath:', dbPath);
+process.env.DATABASE_URL = `file:${dbPath}`;
+log.info('DATABASE_URL:', process.env.DATABASE_URL);
 
 class AppUpdater {
   constructor() {
@@ -24,11 +30,35 @@ class AppUpdater {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
 
 ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
-  console.log(msgTemplate(arg));
+  log.info(msgTemplate(arg));
   event.reply('ipc-example', msgTemplate('pong'));
+});
+
+ipcMain.handle('save-message', async (_event, text: string) => {
+  try {
+    log.info('Start saving message:', text);
+    const result = await prisma.message.create({
+      data: { text },
+    });
+    log.info('Saved message:', result);
+    return result;
+  } catch (error) {
+    log.error('Error saving message:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('get-messages', async () => {
+  log.info('Start fetching messages');
+  const messages = await prisma.message.findMany({
+    orderBy: { createdAt: 'asc' },
+  });
+  log.info('Fetched messages:', messages.length);
+  return messages;
 });
 
 if (process.env.NODE_ENV === 'production') {
@@ -39,9 +69,9 @@ if (process.env.NODE_ENV === 'production') {
 const isDebug =
   process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true';
 
-if (isDebug) {
-  require('electron-debug').default();
-}
+// if (isDebug) {
+//   require('electron-debug').default();
+// }
 
 const installExtensions = async () => {
   const installer = require('electron-devtools-installer');
@@ -56,25 +86,33 @@ const installExtensions = async () => {
     .catch(console.log);
 };
 
+const RESOURCES_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, 'assets')
+  : path.join(__dirname, '../../assets');
+
+const getAssetPath = (...paths: string[]): string => {
+  return path.join(RESOURCES_PATH, ...paths);
+};
+
 const createWindow = async () => {
   if (isDebug) {
     await installExtensions();
   }
 
-  const RESOURCES_PATH = app.isPackaged
-    ? path.join(process.resourcesPath, 'assets')
-    : path.join(__dirname, '../../assets');
-
-  const getAssetPath = (...paths: string[]): string => {
-    return path.join(RESOURCES_PATH, ...paths);
-  };
-
   mainWindow = new BrowserWindow({
+    alwaysOnTop: true,
     show: false,
-    width: 1024,
-    height: 728,
     icon: getAssetPath('icon.png'),
+    width: 400,
+    height: 500,
+    x: 1350,
+    y: 150,
+    transparent: true,
+    resizable: false,
+    frame: false,
     webPreferences: {
+      // nodeIntegration: true,
+      // contextIsolation: false,
       preload: app.isPackaged
         ? path.join(__dirname, 'preload.js')
         : path.join(__dirname, '../../.erb/dll/preload.js'),
@@ -124,10 +162,44 @@ app.on('window-all-closed', () => {
   }
 });
 
+function createTray() {
+  tray = new Tray(getAssetPath('icons/16x16.png'));
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show App',
+      click: () => {
+        if (!mainWindow) {
+          createWindow();
+        } else {
+          mainWindow.show();
+        }
+      },
+    },
+    {
+      label: 'Hide App',
+      click: () => {
+        mainWindow?.hide();
+      },
+    },
+    {
+      label: 'Quit',
+      click: () => {
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setToolTip('My Electron App');
+  tray.setContextMenu(contextMenu);
+}
+
 app
   .whenReady()
   .then(() => {
     createWindow();
+    createTray();
+
     app.on('activate', () => {
       // On macOS it's common to re-create a window in the app when the
       // dock icon is clicked and there are no other windows open.
