@@ -61,6 +61,20 @@ ipcMain.handle('get-messages', async () => {
   return messages;
 });
 
+ipcMain.handle('delete-messages', async (_event, ids: number[]) => {
+  try {
+    log.info('Start deleting messages:', ids);
+    const result = await prisma.message.deleteMany({
+      where: { id: { in: ids } },
+    });
+    log.info('Deleted messages:', result);
+    return result;
+  } catch (error) {
+    log.error('Error deleting messages:', error);
+    throw error;
+  }
+});
+
 if (process.env.NODE_ENV === 'production') {
   const sourceMapSupport = require('source-map-support');
   sourceMapSupport.install();
@@ -103,8 +117,8 @@ const createWindow = async () => {
     alwaysOnTop: true,
     show: false,
     icon: getAssetPath('icon.png'),
-    width: 400,
-    height: 500,
+    width: 500,
+    height: 600,
     x: 1350,
     y: 150,
     transparent: true,

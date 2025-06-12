@@ -22,8 +22,9 @@ const electronHandler = {
       ipcRenderer.once(channel, (_event, ...args) => func(...args));
     },
   },
-  saveMessage: (text: string) => ipcRenderer.invoke('save-message', text),
   getMessages: () => ipcRenderer.invoke('get-messages'),
+  saveMessage: (text: string) => ipcRenderer.invoke('save-message', text),
+  deleteMessages: (ids: number[]) => ipcRenderer.invoke('delete-messages', ids),
 };
 
 contextBridge.exposeInMainWorld('electron', electronHandler);

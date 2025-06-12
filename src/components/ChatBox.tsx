@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Message from './Message';
 import CountUpTimer from './CountUpTimer';
+import ConfirmModal from './ConfirmModal';
+import InputArea from './InputArea';
+import MessageAction from './MessageAction';
 
 declare global {
   interface Window {
@@ -13,6 +16,7 @@ declare global {
           createdAt: string;
         }[]
       >;
+      deleteMessages: (ids: number[]) => Promise<any>;
     };
   }
 }
@@ -25,7 +29,6 @@ export default function ChatBox() {
       createdAt: string;
     }[]
   >([]);
-  const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const fetchMessages = async () => {
@@ -33,16 +36,14 @@ export default function ChatBox() {
     setMessages(msgs);
   };
 
-  const send = async (text: string) => {
-    await window.electron.saveMessage(text);
+  const deleteMessages = async (ids: number[]) => {
+    await window.electron.deleteMessages(ids);
     fetchMessages();
   };
 
-  const handleSend = async () => {
-    if (input.trim()) {
-      setInput('');
-      await send(input);
-    }
+  const send = async (text: string) => {
+    await window.electron.saveMessage(text);
+    fetchMessages();
   };
 
   useEffect(() => {
@@ -54,11 +55,32 @@ export default function ChatBox() {
   }, [messages]);
 
   const [transparent, setTransparent] = useState(false);
+  const [selectedMessages, setSelectedMessages] = useState<
+    {
+      id: number;
+      text: string;
+      createdAt: string;
+    }[]
+  >([]);
+  const [openDeleteModal, setOpenDeleteModal] = useState(false);
 
   return (
     <div className="chat-box">
+      <ConfirmModal
+        isOpen={openDeleteModal}
+        onConfirm={async () => {
+          if (selectedMessages.length) {
+            await deleteMessages(selectedMessages.map((m) => m.id));
+          }
+          setSelectedMessages([]);
+          setOpenDeleteModal(false);
+        }}
+        onCancel={() => setOpenDeleteModal(false)}
+        message="Are you sure you want to delete these messages?"
+      />
+
       <div
-        className="flex items-center gap-4 draggable"
+        className="flex items-center gap-[4px] draggable"
         style={{
           backgroundColor: transparent ? 'rgba(0, 0, 0, 0.2)' : 'black',
           borderBottom: '1px solid white',
@@ -69,9 +91,18 @@ export default function ChatBox() {
           type="button"
           onClick={() => setTransparent((prev) => !prev)}
         >
-          {transparent ? '💡' : '💡'}
+          💡
         </button>
+
         <CountUpTimer onFinish={(time: string) => send(`Finished: ${time}`)} />
+
+        {!!selectedMessages.length && (
+          <MessageAction
+            onClick={() => setOpenDeleteModal(true)}
+            selectedMessages={selectedMessages}
+            setSelectedMessages={setSelectedMessages}
+          />
+        )}
       </div>
 
       <div
@@ -81,21 +112,24 @@ export default function ChatBox() {
       >
         <div className="messages" ref={scrollRef}>
           {messages.map((message) => (
-            <Message key={message.id} message={message} />
+            <Message
+              key={message.id}
+              message={message}
+              isSelected={selectedMessages?.some((m) => m.id === message.id)}
+              onClick={() => {
+                if (selectedMessages?.some((m) => m.id === message.id)) {
+                  setSelectedMessages((prev) =>
+                    prev.filter((m) => m.id !== message.id),
+                  );
+                } else {
+                  setSelectedMessages((prev) => [...prev, message]);
+                }
+              }}
+            />
           ))}
         </div>
-        <div className="input-area">
-          <input
-            type="text"
-            placeholder="Type a message..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          />
-          <button type="button" className="send-btn" onClick={handleSend}>
-            ➤
-          </button>
-        </div>
+
+        <InputArea onSend={send} />
       </div>
     </div>
   );
